@@ -50,6 +50,7 @@ db.knex.schema.hasTable('users').then(function(exists){
       user.increments('id').primary();
       user.string('username', 32);
       user.string('password', 16);
+      user.timestamps();
     });
   }
 });

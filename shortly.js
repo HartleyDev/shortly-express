@@ -95,29 +95,47 @@ function checkUser(req, res, next){
 };
 
 function authenticate(name, pass, next){
-  new User({username: name}).fetch().then(function(found){
-    var hash = found.attributes.password;
-    console.log(hash);
+  var user = new User({username: name});
 
-    compare(pass, hash, function(err, outcome){
-      if(outcome){
-        next();
-      }else{
-        console.log(outcome);
-      }
-    });
+  user.fetch().then(function(found){
+    if(found){
+      var hash = found.attributes.password;
+      compare(pass, hash, function(err, outcome){
+        if(outcome){
+          next(null, user);
+        }else{
+          next(new Error('invalid password'));
+        }
+      }); 
+    }else{
+      next(new Error('Can not find user: ' + name));
+    }
   });
 };
 
 app.get('/login', function(req, res){
-  res.render('login');
+  if(req.session.user){
+    res.redirect('index');
+  }else{
+    res.render('login');
+  }
 });
 
 app.post('/login', function(req, res){
   var name = req.body.username;
   var pass = req.body.password;
-  authenticate(name, pass, function(){
-    res.render('index');
+  authenticate(name, pass, function(err,user){
+    if(user){
+      req.session.regenerate(function(){
+        req.session.user = user;
+        req.session.success = 'Authenticated!';
+        res.redirect('index');
+      });
+    } else {
+      req.session.error = err.toString();
+      console.log(req.session.error);
+      res.redirect('login');
+    }
   });
 });
 
@@ -131,7 +149,9 @@ app.post('/signup', function(req, res){
   hash(req.body.password, null, null, function(err, hash){
     new User({username: req.body.username, password: hash}).save().then(function(newUser){
       Users.add(newUser);
-      res.render('index');
+      req.session.user = newUser;
+      req.session.success = 'Created new user';
+      res.redirect('index');
     });
   });
   //else
