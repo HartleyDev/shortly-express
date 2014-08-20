@@ -1,6 +1,8 @@
 var express = require('express');
 var util = require('./lib/utility');
 var partials = require('express-partials');
+var hash = require('./node_modules/bcrypt-nodejs/bCrypt.js').hash;
+var compare = require('./node_modules/bcrypt-nodejs/bCrypt.js').compare;
 
 var db = require('./app/config');
 var Users = require('./app/collections/users');
@@ -18,19 +20,33 @@ app.configure(function() {
   app.use(express.bodyParser())
   app.use(express.static(__dirname + '/public'));
 });
+app.use(express.bodyParser());
+app.use(express.cookieParser('shhhhh'));
+app.use(express.session());
 
-app.get('/', function(req, res) {
+app.use(function(req,res,next){
+  var err = req.session.error;
+  var msg = req.session.success;
+  delete req.session.error;
+  delete req.session.success;
+  res.locals.message = '';
+  if(err) res.locals.message = '<p class="msg error">' + err + '</p>'; 
+  if(msg) res.locals.message = '<p class="msg success">' + msg + '</p>';
+  next();
+});
+
+app.get('/', checkUser, function(req, res) {
   res.render('index');
 });
 
-app.get('/create', function(req, res) {
+app.get('/create', checkUser, function(req, res) {
   res.render('index');
 });
 
-app.get('/links', function(req, res) {
-  Links.reset().fetch().then(function(links) {
-    res.send(200, links.models);
-  })
+app.get('/links', checkUser, function(req, res) {
+    Links.reset().fetch().then(function(links) {
+      res.send(200, links.models);
+    });
 });
 
 app.post('/links', function(req, res) {
@@ -69,8 +85,78 @@ app.post('/links', function(req, res) {
 /************************************************************/
 // Write your authentication routes here
 /************************************************************/
+function checkUser(req, res, next){
+  if(req.session.user){
+    next();
+  }else {
+    req.session.error = 'Access Denied. Please Login';
+    res.redirect('login');
+  }
+};
 
+function authenticate(name, pass, next){
+  var user = new User({username: name});
 
+  user.fetch().then(function(found){
+    if(found){
+      var hash = found.attributes.password;
+      compare(pass, hash, function(err, outcome){
+        if(outcome){
+          next(null, user);
+        }else{
+          next(new Error('invalid password'));
+        }
+      }); 
+    }else{
+      next(new Error('Can not find user: ' + name));
+    }
+  });
+};
+
+app.get('/login', function(req, res){
+  if(req.session.user){
+    res.redirect('index');
+  }else{
+    res.render('login');
+  }
+});
+
+app.post('/login', function(req, res){
+  var name = req.body.username;
+  var pass = req.body.password;
+  authenticate(name, pass, function(err,user){
+    if(user){
+      req.session.regenerate(function(){
+        req.session.user = user;
+        req.session.success = 'Authenticated!';
+        res.redirect('index');
+      });
+    } else {
+      req.session.error = err.toString();
+      console.log(req.session.error);
+      res.redirect('login');
+    }
+  });
+});
+
+app.get('/signup', function(req, res){
+  res.render('signup');
+});
+
+app.post('/signup', function(req, res){
+  //if no user 
+    //create user
+  hash(req.body.password, null, null, function(err, hash){
+    new User({username: req.body.username, password: hash}).save().then(function(newUser){
+      Users.add(newUser);
+      req.session.user = newUser;
+      req.session.success = 'Created new user';
+      res.redirect('index');
+    });
+  });
+  //else
+    // display errors
+});
 
 /************************************************************/
 // Handle the wildcard route last - if all other routes fail
